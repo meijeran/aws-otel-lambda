@@ -1,6 +1,14 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## Fork Release — 2026-04-07 (decouple-processor)
+
+- **Forked** from [aws-observability/aws-otel-lambda](https://github.com/aws-observability/aws-otel-lambda) to add decouple processor support to the ADOT collector Lambda layer.
+- Added [`decoupleprocessor`](https://github.com/open-telemetry/opentelemetry-lambda/tree/main/collector/processor/decoupleprocessor) to the collector layer. This processor allows Lambda functions to complete their invocation before telemetry is fully exported, reducing response-time impact of tracing.
+- Collector layer `aws-otel-collector-<amd64|arm64>-ver-0-138-0` based on ADOT Collector `v0.138.0` (OTel Collector `v1.44.0`).
+- Published to 7 AWS regions: `us-east-1`, `us-east-2`, `us-west-2`, `eu-west-1`, `eu-central-1`, `ap-southeast-1`, `ap-northeast-1`.
+
+
 ## 2025-05-30 Release
 
 - Python layer [**aws-otel-python-<amd64|arm64>-ver-1-32-0**](https://aws-otel.github.io/docs/getting-started/lambda/lambda-python) contains OpenTelemetry Python `v1.32.0` and ADOT Collector for Lambda `v0.43.0`
