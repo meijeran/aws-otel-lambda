@@ -1,0 +1,250 @@
+name: Publish Collector Layer
+
+# Publishes the ADOT collector Lambda layer (with decouple processor) to AWS
+# and makes it publicly accessible.
+#
+# Triggered automatically on v* tags, or manually via workflow_dispatch.
+#
+# Required GitHub secrets:
+#   AWS_ACCESS_KEY_ID     - IAM user access key
+#   AWS_SECRET_ACCESS_KEY - IAM user secret key
+#
+# Required IAM permissions:
+#   lambda:PublishLayerVersion
+#   lambda:AddLayerVersionPermission
+#   lambda:ListLayerVersions
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Layer version label (e.g. 0-138-0). Derived from tag automatically when triggered by a push.'
+        required: false
+        default: '0-138-0'
+      aws_regions:
+        description: 'JSON array of AWS regions to publish to'
+        required: false
+        default: '["us-east-1", "us-east-2", "us-west-2", "eu-west-1", "eu-central-1", "ap-southeast-1", "ap-northeast-1"]'
+      architecture:
+        description: 'JSON array of architectures to build'
+        required: false
+        default: '["amd64", "arm64"]'
+
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+
+jobs:
+  # Resolves inputs from either tag push or workflow_dispatch so all downstream
+  # jobs have a single consistent source of truth.
+  setup:
+    name: Resolve inputs
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      architecture: ${{ steps.arch.outputs.value }}
+      aws_regions: ${{ steps.regions.outputs.value }}
+    steps:
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Convert tag v0.138.0 -> 0-138-0
+            echo "value=$(echo '${{ github.ref_name }}' | sed 's/^v//' | tr '.' '-')" >> $GITHUB_OUTPUT
+          else
+            echo "value=${{ inputs.version || '0-138-0' }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Resolve architecture
+        id: arch
+        env:
+          VALUE: ${{ inputs.architecture || '["amd64", "arm64"]' }}
+        run: echo "value=$VALUE" >> $GITHUB_OUTPUT
+
+      - name: Resolve regions
+        id: regions
+        env:
+          VALUE: ${{ inputs.aws_regions || '["us-east-1", "us-east-2", "us-west-2", "eu-west-1", "eu-central-1", "ap-southeast-1", "ap-northeast-1"]' }}
+        run: echo "value=$VALUE" >> $GITHUB_OUTPUT
+
+  build:
+    name: Build - ${{ matrix.architecture }}
+    needs: setup
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        architecture: ${{ fromJson(needs.setup.outputs.architecture) }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '~1.24.3'
+          check-latest: true
+
+      - name: Patch ADOT
+        run: ./patch-upstream.sh
+
+      - name: Build collector layer
+        run: GOARCH=${{ matrix.architecture }} make package
+        working-directory: opentelemetry-lambda/collector
+
+      - name: Upload layer zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: collector-layer-${{ matrix.architecture }}
+          path: opentelemetry-lambda/collector/build/opentelemetry-collector-layer-${{ matrix.architecture }}.zip
+          retention-days: 7
+
+  validate:
+    name: Validate layer - ${{ matrix.architecture }}
+    needs: [setup, build]
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        architecture: ${{ fromJson(needs.setup.outputs.architecture) }}
+
+    steps:
+      - name: Download layer zip
+        uses: actions/download-artifact@v4
+        with:
+          name: collector-layer-${{ matrix.architecture }}
+
+      - name: Validate layer contents
+        run: |
+          mkdir layer-contents
+          unzip -q opentelemetry-collector-layer-${{ matrix.architecture }}.zip -d layer-contents
+          echo "Layer contents:"
+          find layer-contents -type f
+
+          test -f layer-contents/extensions/collector \
+            || (echo "ERROR: extensions/collector binary missing" && exit 1)
+          test -x layer-contents/extensions/collector \
+            || (echo "ERROR: extensions/collector is not executable" && exit 1)
+          test -f layer-contents/collector-config/config.yaml \
+            || (echo "ERROR: collector-config/config.yaml missing" && exit 1)
+
+          echo "Validation passed ✓"
+
+  publish:
+    name: Publish - ${{ matrix.aws_region }} / ${{ matrix.architecture }}
+    needs: [setup, validate]
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        aws_region: ${{ fromJson(needs.setup.outputs.aws_regions) }}
+        architecture: ${{ fromJson(needs.setup.outputs.architecture) }}
+
+    steps:
+      - name: Download layer zip
+        uses: actions/download-artifact@v4
+        with:
+          name: collector-layer-${{ matrix.architecture }}
+
+      - uses: aws-actions/configure-aws-credentials@v4.0.2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ matrix.aws_region }}
+
+      - name: Publish layer version
+        id: publish
+        run: |
+          LAYER_ARN=$(
+            aws lambda publish-layer-version \
+              --layer-name aws-otel-collector-${{ matrix.architecture }}-ver-${{ needs.setup.outputs.version }} \
+              --description "ADOT Collector with decouple processor v${{ needs.setup.outputs.version }}" \
+              --zip-file fileb://opentelemetry-collector-layer-${{ matrix.architecture }}.zip \
+              --compatible-runtimes provided.al2 provided.al2023 \
+              --query 'LayerVersionArn' \
+              --output text
+          )
+          echo "layer_arn=$LAYER_ARN" >> $GITHUB_OUTPUT
+          echo "::notice::${{ matrix.aws_region }} (${{ matrix.architecture }}): $LAYER_ARN"
+
+      - name: Make layer public
+        run: |
+          VERSION=$(
+            aws lambda list-layer-versions \
+              --layer-name aws-otel-collector-${{ matrix.architecture }}-ver-${{ needs.setup.outputs.version }} \
+              --query 'max_by(LayerVersions, &Version).Version'
+          )
+          aws lambda add-layer-version-permission \
+            --layer-name aws-otel-collector-${{ matrix.architecture }}-ver-${{ needs.setup.outputs.version }} \
+            --version-number $VERSION \
+            --principal "*" \
+            --statement-id public \
+            --action lambda:GetLayerVersion
+
+      - name: Save ARN to file
+        run: echo "${{ steps.publish.outputs.layer_arn }}" > arn.txt
+
+      - name: Upload ARN artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: layer-arn-${{ matrix.architecture }}-${{ matrix.aws_region }}
+          path: arn.txt
+
+  release:
+    name: Create GitHub Release
+    needs: [setup, publish]
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all ARN artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: layer-arn-*
+          path: arns
+          merge-multiple: false
+
+      - name: Download layer zips
+        uses: actions/download-artifact@v4
+        with:
+          pattern: collector-layer-*
+          path: zips
+          merge-multiple: false
+
+      - name: Generate release notes
+        run: |
+          echo "## ADOT Collector Lambda Layer with Decouple Processor" >> notes.md
+          echo "" >> notes.md
+          echo "Version: \`${{ needs.setup.outputs.version }}\`" >> notes.md
+          echo "" >> notes.md
+          for arch in amd64 arm64; do
+            echo "### \`$arch\`" >> notes.md
+            echo "" >> notes.md
+            echo "| Region | Layer ARN |" >> notes.md
+            echo "| ------ | --------- |" >> notes.md
+            for dir in arns/layer-arn-${arch}-*/; do
+              region=${dir#arns/layer-arn-${arch}-}
+              region=${region%/}
+              arn=$(cat ${dir}arn.txt)
+              echo "| $region | \`$arn\` |" >> notes.md
+            done
+            echo "" >> notes.md
+          done
+          cat notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "ADOT Collector Layer v${{ needs.setup.outputs.version }} (with decouple processor)"
+          body_path: notes.md
+          make_latest: true
+          files: |
+            zips/collector-layer-amd64/opentelemetry-collector-layer-amd64.zip
+            zips/collector-layer-arm64/opentelemetry-collector-layer-arm64.zip
