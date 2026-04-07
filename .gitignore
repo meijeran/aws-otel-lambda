@@ -17,3 +17,6 @@ coverage.txt
 
 .terraform*
 terraform.*
+
+# Docker Buildx artifact
+.dockerbuild
