@@ -1,0 +1,92 @@
+name: Publish Collector Layer (decouple-processor)
+
+on:
+  push:
+    branches:
+      - decouple-processor
+    paths:
+      - adot/collector/**
+      - opentelemetry-lambda
+      - patch-upstream.sh
+      - '*.patch'
+      - .github/workflows/publish-collector-layer.yml
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: 'Architectures to build and publish'
+        required: true
+        default: '["amd64", "arm64"]'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-22.04
+    name: Build and publish - ${{ matrix.architecture }}
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: ${{ fromJson(inputs.architecture || '["amd64", "arm64"]') }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '~1.24.3'
+          check-latest: true
+
+      - uses: aws-actions/configure-aws-credentials@v4.0.2
+        with:
+          role-to-assume: ${{ secrets.INTEG_TEST_LAMBDA_ROLE_ARN }}
+          role-duration-seconds: 1200
+          aws-region: us-east-1
+
+      - name: Patch ADOT
+        run: ./patch-upstream.sh
+
+      - name: Build collector layer
+        run: GOARCH=${{ matrix.architecture }} make package
+        working-directory: opentelemetry-lambda/collector
+
+      - name: Set layer name
+        run: |
+          echo LAYER_NAME=aws-otel-collector-${{ matrix.architecture }}-decouple-processor-${{ github.sha }} | tee --append $GITHUB_ENV
+
+      - name: Publish layer to AWS Lambda
+        run: |
+          LAYER_ARN=$(
+            aws lambda publish-layer-version \
+              --layer-name ${{ env.LAYER_NAME }} \
+              --description "ADOT Collector with decouple processor - ${{ github.sha }}" \
+              --zip-file fileb://opentelemetry-lambda/collector/build/opentelemetry-collector-layer-${{ matrix.architecture }}.zip \
+              --compatible-runtimes provided.al2 provided.al2023 \
+              --query 'LayerVersionArn' \
+              --output text
+          )
+          echo "LAYER_ARN=$LAYER_ARN" | tee --append $GITHUB_ENV
+          echo "::notice::Collector Layer ARN (${{ matrix.architecture }}): $LAYER_ARN"
+
+      - name: Save layer ARN to file
+        run: |
+          mkdir -p layer-arns
+          echo ${{ env.LAYER_ARN }} > layer-arns/${{ matrix.architecture }}
+
+      - name: Upload layer ARN artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: collector-layer-arn-${{ matrix.architecture }}
+          path: layer-arns/${{ matrix.architecture }}
+
+      - name: Upload layer zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: collector-layer-zip-${{ matrix.architecture }}
+          path: opentelemetry-lambda/collector/build/opentelemetry-collector-layer-${{ matrix.architecture }}.zip
