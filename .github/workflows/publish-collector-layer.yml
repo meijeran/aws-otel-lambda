@@ -49,11 +49,11 @@ jobs:
         architecture: ${{ fromJson(inputs.architecture || '["amd64", "arm64"]') }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "~1.24.3"
           check-latest: true
@@ -66,7 +66,7 @@ jobs:
         working-directory: opentelemetry-lambda/collector
 
       - name: Upload layer zip
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: collector-layer-${{ matrix.architecture }}
           path: opentelemetry-lambda/collector/build/opentelemetry-collector-layer-${{ matrix.architecture }}.zip
@@ -84,7 +84,7 @@ jobs:
 
     steps:
       - name: Download layer zip
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: collector-layer-${{ matrix.architecture }}
 
@@ -127,7 +127,7 @@ jobs:
         run: echo "${{ steps.publish.outputs.layer_arn }}" > arn.txt
 
       - name: Upload ARN artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: layer-arn-${{ matrix.architecture }}-${{ matrix.aws_region }}
           path: arn.txt
@@ -138,17 +138,17 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download all ARN artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: layer-arn-*
           path: arns
           merge-multiple: false
 
       - name: Download layer zips
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: collector-layer-*
           path: zips
