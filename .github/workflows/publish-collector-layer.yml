@@ -124,15 +124,13 @@ jobs:
             --action lambda:GetLayerVersion
 
       - name: Save ARN to file
-        run: |
-          mkdir -p arns/${{ matrix.architecture }}
-          echo "${{ steps.publish.outputs.layer_arn }}" > arns/${{ matrix.architecture }}/${{ matrix.aws_region }}
+        run: echo "${{ steps.publish.outputs.layer_arn }}" > arn.txt
 
       - name: Upload ARN artifact
         uses: actions/upload-artifact@v4
         with:
           name: layer-arn-${{ matrix.architecture }}-${{ matrix.aws_region }}
-          path: arns/${{ matrix.architecture }}/${{ matrix.aws_region }}
+          path: arn.txt
 
   release:
     name: Create GitHub Release
@@ -167,9 +165,10 @@ jobs:
             echo "" >> notes.md
             echo "| Region | Layer ARN |" >> notes.md
             echo "| ------ | --------- |" >> notes.md
-            for file in arns/layer-arn-${arch}-*/${arch}/*; do
-              region=$(basename $file)
-              arn=$(cat $file)
+            for dir in arns/layer-arn-${arch}-*/; do
+              region=${dir#arns/layer-arn-${arch}-}
+              region=${region%/}
+              arn=$(cat ${dir}arn.txt)
               echo "| $region | \`$arn\` |" >> notes.md
             done
             echo "" >> notes.md
