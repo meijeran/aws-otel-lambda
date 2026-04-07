@@ -52,6 +52,29 @@ jobs:
               if: steps.merge.outputs.merged == 'true'
               run: git push origin main
 
+            - name: Rebase decouple-processor on updated main
+              if: steps.merge.outputs.merged == 'true'
+              run: |
+                git checkout decouple-processor || git checkout -b decouple-processor origin/decouple-processor
+                if git rebase main; then
+                  git push origin decouple-processor --force-with-lease
+                  echo "decouple-processor rebased successfully"
+                else
+                  git rebase --abort
+                  BRANCH="sync/decouple-processor-$(date +%Y-%m-%d)"
+                  git checkout -b "$BRANCH" origin/decouple-processor
+                  git merge --no-ff main -m "chore: sync decouple-processor with upstream $(date +%Y-%m-%d)" || true
+                  git add -A && git commit --no-edit || true
+                  git push origin "$BRANCH"
+                  gh pr create \
+                    --title "chore: sync decouple-processor with upstream $(date +%Y-%m-%d)" \
+                    --body "Main was synced with upstream. Automatic rebase of \`decouple-processor\` failed — please review and resolve conflicts before merging." \
+                    --base decouple-processor \
+                    --head "$BRANCH"
+                fi
+              env:
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
             - name: Open PR if fast-forward failed (conflicts)
               if: steps.check.outputs.behind != '0' && steps.merge.outputs.merged == 'false'
               run: |
