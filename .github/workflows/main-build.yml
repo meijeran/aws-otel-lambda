@@ -5,14 +5,13 @@ on:
     branches:
       - main
       - release/*
-      - decouple-processor
     paths-ignore:
-      - '.github/**'
-      - '!.github/workflows/main-build.yml'
-      - '!.github/workflows/main-build-python.yml'
-      - '!.github/workflows/main-build-java.yml'
-      - '!.github/workflows/main-build-nodejs.yml'
-      - '**.md'
+      - ".github/**"
+      - "!.github/workflows/main-build.yml"
+      - "!.github/workflows/main-build-python.yml"
+      - "!.github/workflows/main-build-java.yml"
+      - "!.github/workflows/main-build-nodejs.yml"
+      - "**.md"
   workflow_dispatch:
 
 concurrency:
@@ -30,10 +29,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        architecture: [ amd64, arm64 ]
-        language: [ dotnet, go ]
-        sample-app: [ aws-sdk ]
-        instrumentation-type: [ wrapper ]
+        architecture: [amd64, arm64]
+        language: [dotnet, go]
+        sample-app: [aws-sdk]
+        instrumentation-type: [wrapper]
 
     steps:
       - uses: actions/checkout@v4
@@ -41,12 +40,12 @@ jobs:
           submodules: recursive
       - uses: actions/setup-go@v5
         with:
-          go-version: '~1.24.3'
+          go-version: "~1.24.3"
           check-latest: true
       - uses: actions/setup-dotnet@v4
         if: ${{ matrix.language == 'dotnet' }}
         with:
-          dotnet-version: '6.0.405'
+          dotnet-version: "6.0.405"
       - uses: aws-actions/configure-aws-credentials@v4.0.2
         with:
           role-to-assume: ${{ secrets.INTEG_TEST_LAMBDA_ROLE_ARN }}
@@ -123,7 +122,7 @@ jobs:
     uses: ./.github/workflows/main-build-python.yml
     secrets: inherit
     with:
-      caller-workflow-name: 'main-build'
+      caller-workflow-name: "main-build"
 
   java-runtime-test:
     concurrency:
@@ -132,7 +131,7 @@ jobs:
     uses: ./.github/workflows/main-build-java.yml
     secrets: inherit
     with:
-      caller-workflow-name: 'main-build'
+      caller-workflow-name: "main-build"
 
   nodejs-runtime-test:
     concurrency:
@@ -141,14 +140,20 @@ jobs:
     uses: ./.github/workflows/main-build-nodejs.yml
     secrets: inherit
     with:
-      caller-workflow-name: 'main-build'
+      caller-workflow-name: "main-build"
 
   publish-build-status:
-    needs: [integration-test, python-runtime-test, java-runtime-test, nodejs-runtime-test]
+    needs:
+      [
+        integration-test,
+        python-runtime-test,
+        java-runtime-test,
+        nodejs-runtime-test,
+      ]
     if: ${{ always() }}
     uses: ./.github/workflows/publish-status.yml
     with:
-      namespace: 'ADOT/GitHubActions'
+      namespace: "ADOT/GitHubActions"
       repository: ${{ github.repository }}
       branch: ${{ github.ref_name }}
       workflow: main-build
