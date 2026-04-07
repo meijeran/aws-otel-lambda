@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - release/*
+      - decouple-processor
     paths-ignore:
       - '.github/**'
       - '!.github/workflows/main-build.yml'
