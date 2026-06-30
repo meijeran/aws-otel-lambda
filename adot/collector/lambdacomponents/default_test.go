@@ -28,6 +28,7 @@ const (
 	exportersCount  = 6
 	receiversCount  = 1
 	extensionsCount = 1
+	processorsCount = 1
 )
 
 func TestComponents(t *testing.T) {
@@ -54,4 +55,9 @@ func TestComponents(t *testing.T) {
 	assert.Len(t, extensions, extensionsCount)
 	// aws extensions
 	assert.NotNil(t, extensions[component.MustNewType("sigv4auth")])
+
+	processors := factories.Processors
+	assert.Len(t, processors, processorsCount)
+	// lambda processors
+	assert.NotNil(t, processors[component.MustNewType("decouple")])
 }
