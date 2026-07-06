@@ -17,6 +17,8 @@ require (
 	go.uber.org/multierr v1.11.0
 )
 
+require go.opentelemetry.io/collector/processor/processorhelper v0.138.0 // indirect
+
 require (
 	cloud.google.com/go/auth v0.18.2 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
@@ -93,6 +95,8 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/resourcetotelemetry v0.151.0 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/translator/prometheus v0.151.0 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/translator/prometheusremotewrite v0.151.0 // indirect
+	github.com/open-telemetry/opentelemetry-lambda/collector/lambdalifecycle v0.0.0-00010101000000-000000000000 // indirect
+	github.com/open-telemetry/opentelemetry-lambda/collector/processor/decoupleprocessor v0.0.0-00010101000000-000000000000
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -165,7 +169,7 @@ require (
 	go.opentelemetry.io/collector/pdata/xpdata v0.151.0 // indirect
 	go.opentelemetry.io/collector/pipeline v1.57.0 // indirect
 	go.opentelemetry.io/collector/pipeline/xpipeline v0.151.0 // indirect
-	go.opentelemetry.io/collector/processor v1.57.0 // indirect
+	go.opentelemetry.io/collector/processor v1.57.0
 	go.opentelemetry.io/collector/processor/processortest v0.151.0 // indirect
 	go.opentelemetry.io/collector/processor/xprocessor v0.151.0 // indirect
 	go.opentelemetry.io/collector/receiver v1.57.0 // indirect
@@ -219,3 +223,7 @@ require (
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4 // indirect
 )
+
+replace github.com/open-telemetry/opentelemetry-lambda/collector/processor/decoupleprocessor => ../../../opentelemetry-lambda/collector/processor/decoupleprocessor
+
+replace github.com/open-telemetry/opentelemetry-lambda/collector/lambdalifecycle => ../../../opentelemetry-lambda/collector/lambdalifecycle
