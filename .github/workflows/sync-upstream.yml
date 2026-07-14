@@ -1,95 +1,72 @@
 name: Sync with upstream
 
 on:
-    schedule:
-        - cron: "0 6 * * 1" # Every Monday at 06:00 UTC
-    workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
+  workflow_dispatch:
 
 jobs:
-    sync:
-        name: Sync fork with upstream
-        runs-on: ubuntu-latest
-        permissions:
-            contents: write
-            pull-requests: write
+  sync:
+    name: Sync fork with upstream
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
 
-        steps:
-            - name: Checkout fork
-              uses: actions/checkout@v6
-              with:
-                  fetch-depth: 0
-                  token: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Configure git
-              run: |
-                  git config user.name "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-            - name: Add upstream remote
-              run: git remote add upstream https://github.com/aws-observability/aws-otel-lambda.git
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/aws-observability/aws-otel-lambda.git
 
-            - name: Fetch upstream
-              run: git fetch upstream
+      - name: Fetch upstream
+        run: git fetch upstream
 
-            - name: Check for new upstream commits
-              id: check
-              run: |
-                  BEHIND=$(git rev-list --count HEAD..upstream/main)
-                  echo "behind=$BEHIND" >> $GITHUB_OUTPUT
-                  echo "Commits behind upstream: $BEHIND"
+      - name: Check for new upstream commits
+        id: check
+        run: |
+          BEHIND=$(git rev-list --count HEAD..upstream/main)
+          echo "behind=$BEHIND" >> $GITHUB_OUTPUT
+          echo "Commits behind upstream: $BEHIND"
 
-            - name: Attempt fast-forward merge
-              if: steps.check.outputs.behind != '0'
-              id: merge
-              run: |
-                  if git merge --ff-only upstream/main; then
-                    echo "merged=true" >> $GITHUB_OUTPUT
-                  else
-                    echo "merged=false" >> $GITHUB_OUTPUT
-                  fi
+      - name: Attempt fast-forward merge
+        if: steps.check.outputs.behind != '0'
+        id: merge
+        run: |
+          if git merge --ff-only upstream/main; then
+            echo "merged=true" >> $GITHUB_OUTPUT
+          else
+            echo "merged=false" >> $GITHUB_OUTPUT
+          fi
 
-            - name: Push if fast-forward succeeded
-              if: steps.merge.outputs.merged == 'true'
-              run: git push origin main
+      - name: Push if fast-forward succeeded
+        if: steps.merge.outputs.merged == 'true'
+        run: git push origin main
 
-            - name: Rebase decouple-processor on updated main
-              if: steps.merge.outputs.merged == 'true'
-              run: |
-                git checkout decouple-processor || git checkout -b decouple-processor origin/decouple-processor
-                if git rebase main; then
-                  git push origin decouple-processor --force-with-lease
-                  echo "decouple-processor rebased successfully"
-                else
-                  git rebase --abort
-                  BRANCH="sync/decouple-processor-$(date +%Y-%m-%d)"
-                  git checkout -b "$BRANCH" origin/decouple-processor
-                  git merge --no-ff main -m "chore: sync decouple-processor with upstream $(date +%Y-%m-%d)" || true
-                  git add -A && git commit --no-edit || true
-                  git push origin "$BRANCH"
-                  gh pr create \
-                    --title "chore: sync decouple-processor with upstream $(date +%Y-%m-%d)" \
-                    --body "Main was synced with upstream. Automatic rebase of \`decouple-processor\` failed — please review and resolve conflicts before merging." \
-                    --base decouple-processor \
-                    --head "$BRANCH"
-                fi
-              env:
-                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Open PR if fast-forward failed (conflicts)
+        if: steps.check.outputs.behind != '0' && steps.merge.outputs.merged == 'false'
+        run: |
+          BRANCH="sync/upstream-$(date +%Y-%m-%d)"
+          git checkout -b "$BRANCH"
+          git merge --no-ff upstream/main -m "chore: sync with upstream $(date +%Y-%m-%d)" || true
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "chore: sync with upstream $(date +%Y-%m-%d)" \
+            --body "Automated sync from [aws-observability/aws-otel-lambda](https://github.com/aws-observability/aws-otel-lambda).\n\n⚠️ Fast-forward was not possible — please review and resolve conflicts before merging." \
+            --base main \
+            --head "$BRANCH"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Open PR if fast-forward failed (conflicts)
-              if: steps.check.outputs.behind != '0' && steps.merge.outputs.merged == 'false'
-              run: |
-                  BRANCH="sync/upstream-$(date +%Y-%m-%d)"
-                  git checkout -b "$BRANCH"
-                  git merge --no-ff upstream/main -m "chore: sync with upstream $(date +%Y-%m-%d)" || true
-                  git push origin "$BRANCH"
-                  gh pr create \
-                    --title "chore: sync with upstream $(date +%Y-%m-%d)" \
-                    --body "Automated sync from [aws-observability/aws-otel-lambda](https://github.com/aws-observability/aws-otel-lambda).\n\n⚠️ Fast-forward was not possible — please review and resolve conflicts before merging." \
-                    --base main \
-                    --head "$BRANCH"
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: No changes
-              if: steps.check.outputs.behind == '0'
-              run: echo "Already up to date with upstream."
+      - name: No changes
+        if: steps.check.outputs.behind == '0'
+        run: echo "Already up to date with upstream."
