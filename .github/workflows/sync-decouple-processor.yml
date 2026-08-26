@@ -1,0 +1,91 @@
+name: Sync decouple-processor with main
+
+# Keeps the decouple-processor feature branch up to date whenever main
+# changes (typically after a weekly upstream sync PR - see sync-upstream.yml
+# - has been reviewed and merged). Opens a pull request against
+# decouple-processor for human approval rather than pushing directly, so the
+# PR Build workflow (.github/workflows/pr-build.yml) must succeed before a
+# reviewer merges it.
+#
+# Required secret:
+#   SYNC_PAT - a personal access token (repo scope) used instead of the
+#              default GITHUB_TOKEN, so the PR this workflow opens actually
+#              triggers the PR Build workflow.
+
+on:
+    push:
+        branches:
+            - main
+    workflow_dispatch:
+
+jobs:
+    sync:
+        name: Sync decouple-processor with main
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            pull-requests: write
+
+        steps:
+            - name: Checkout fork
+              uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+                  token: ${{ secrets.SYNC_PAT }}
+
+            - name: Configure git
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+            - name: Check decouple-processor is behind main
+              id: check
+              run: |
+                  git fetch origin decouple-processor main
+                  BEHIND=$(git rev-list --count origin/decouple-processor..origin/main)
+                  echo "behind=$BEHIND" >> $GITHUB_OUTPUT
+                  echo "decouple-processor is $BEHIND commit(s) behind main"
+
+            - name: Create sync branch and merge main
+              if: steps.check.outputs.behind != '0'
+              id: merge
+              run: |
+                  BRANCH="sync/decouple-processor-$(date +%Y-%m-%d)-${GITHUB_RUN_NUMBER}"
+                  echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+                  git checkout -b "$BRANCH" origin/decouple-processor
+
+                  git merge --no-ff origin/main -m "chore: sync decouple-processor with main $(date +%Y-%m-%d)" || true
+                  if git diff --name-only --diff-filter=U | grep -q .; then
+                    git add -A
+                    git commit --no-edit
+                    echo "clean=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "clean=true" >> $GITHUB_OUTPUT
+                  fi
+
+                  git push origin "$BRANCH"
+
+            - name: Open PR for review
+              if: steps.check.outputs.behind != '0'
+              run: |
+                  if [ "${{ steps.merge.outputs.clean }}" = "true" ]; then
+                    BODY="Automated sync of \`decouple-processor\` with \`main\` (${{ steps.check.outputs.behind }} commit(s) behind).
+
+                  Merged cleanly. The PR Build workflow will run the test suite against this branch - please confirm it succeeds before approving and merging."
+                  else
+                    BODY="Automated sync of \`decouple-processor\` with \`main\` (${{ steps.check.outputs.behind }} commit(s) behind).
+
+                  ⚠️ Merge conflicts were detected and committed with conflict markers left in place - please resolve them before merging. Do not merge until the PR Build workflow succeeds."
+                  fi
+
+                  gh pr create \
+                    --title "chore: sync decouple-processor with main $(date +%Y-%m-%d)" \
+                    --body "$BODY" \
+                    --base decouple-processor \
+                    --head "${{ steps.merge.outputs.branch }}"
+              env:
+                  GH_TOKEN: ${{ secrets.SYNC_PAT }}
+
+            - name: No changes
+              if: steps.check.outputs.behind == '0'
+              run: echo "decouple-processor is already up to date with main."

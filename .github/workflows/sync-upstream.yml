@@ -1,5 +1,18 @@
 name: Sync with upstream
 
+# Weekly agentic sync: checks aws-observability/aws-otel-lambda for new commits
+# on main and, if any are found, opens a pull request against this fork's main
+# branch for human approval. Nothing is ever pushed directly to main - the PR
+# Build workflow (.github/workflows/pr-build.yml) runs automatically against
+# the PR so tests must succeed before a reviewer approves/merges it.
+#
+# Required secret:
+#   SYNC_PAT - a personal access token (repo scope) used instead of the
+#              default GITHUB_TOKEN. This is required so the PR this workflow
+#              opens actually triggers the PR Build workflow - GitHub does not
+#              trigger other workflows for pull requests created with the
+#              default GITHUB_TOKEN.
+
 on:
     schedule:
         - cron: "0 6 * * 1" # Every Monday at 06:00 UTC
@@ -7,7 +20,7 @@ on:
 
 jobs:
     sync:
-        name: Sync fork with upstream
+        name: Sync fork main with upstream
         runs-on: ubuntu-latest
         permissions:
             contents: write
@@ -18,7 +31,7 @@ jobs:
               uses: actions/checkout@v6
               with:
                   fetch-depth: 0
-                  token: ${{ secrets.GITHUB_TOKEN }}
+                  token: ${{ secrets.SYNC_PAT }}
 
             - name: Configure git
               run: |
@@ -38,57 +51,49 @@ jobs:
                   echo "behind=$BEHIND" >> $GITHUB_OUTPUT
                   echo "Commits behind upstream: $BEHIND"
 
-            - name: Attempt fast-forward merge
+            - name: Create sync branch and merge upstream
               if: steps.check.outputs.behind != '0'
               id: merge
               run: |
+                  BRANCH="sync/upstream-$(date +%Y-%m-%d)-${GITHUB_RUN_NUMBER}"
+                  echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+                  git checkout -b "$BRANCH"
+
                   if git merge --ff-only upstream/main; then
-                    echo "merged=true" >> $GITHUB_OUTPUT
+                    echo "clean=true" >> $GITHUB_OUTPUT
                   else
-                    echo "merged=false" >> $GITHUB_OUTPUT
+                    git merge --no-ff upstream/main -m "chore: sync with upstream $(date +%Y-%m-%d)" || true
+                    if git diff --name-only --diff-filter=U | grep -q .; then
+                      git add -A
+                      git commit --no-edit
+                      echo "clean=false" >> $GITHUB_OUTPUT
+                    else
+                      echo "clean=true" >> $GITHUB_OUTPUT
+                    fi
                   fi
 
-            - name: Push if fast-forward succeeded
-              if: steps.merge.outputs.merged == 'true'
-              run: git push origin main
-
-            - name: Rebase decouple-processor on updated main
-              if: steps.merge.outputs.merged == 'true'
-              run: |
-                git checkout decouple-processor || git checkout -b decouple-processor origin/decouple-processor
-                if git rebase main; then
-                  git push origin decouple-processor --force-with-lease
-                  echo "decouple-processor rebased successfully"
-                else
-                  git rebase --abort
-                  BRANCH="sync/decouple-processor-$(date +%Y-%m-%d)"
-                  git checkout -b "$BRANCH" origin/decouple-processor
-                  git merge --no-ff main -m "chore: sync decouple-processor with upstream $(date +%Y-%m-%d)" || true
-                  git add -A && git commit --no-edit || true
                   git push origin "$BRANCH"
-                  gh pr create \
-                    --title "chore: sync decouple-processor with upstream $(date +%Y-%m-%d)" \
-                    --body "Main was synced with upstream. Automatic rebase of \`decouple-processor\` failed — please review and resolve conflicts before merging." \
-                    --base decouple-processor \
-                    --head "$BRANCH"
-                fi
-              env:
-                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Open PR if fast-forward failed (conflicts)
-              if: steps.check.outputs.behind != '0' && steps.merge.outputs.merged == 'false'
+            - name: Open PR for review
+              if: steps.check.outputs.behind != '0'
               run: |
-                  BRANCH="sync/upstream-$(date +%Y-%m-%d)"
-                  git checkout -b "$BRANCH"
-                  git merge --no-ff upstream/main -m "chore: sync with upstream $(date +%Y-%m-%d)" || true
-                  git push origin "$BRANCH"
+                  if [ "${{ steps.merge.outputs.clean }}" = "true" ]; then
+                    BODY="Automated weekly sync from [aws-observability/aws-otel-lambda](https://github.com/aws-observability/aws-otel-lambda) (${{ steps.check.outputs.behind }} commit(s) behind).
+
+                  Merged cleanly. The PR Build workflow will run the test suite against this branch - please confirm it succeeds before approving and merging."
+                  else
+                    BODY="Automated weekly sync from [aws-observability/aws-otel-lambda](https://github.com/aws-observability/aws-otel-lambda) (${{ steps.check.outputs.behind }} commit(s) behind).
+
+                  ⚠️ Merge conflicts were detected and committed with conflict markers left in place - please resolve them before merging. Do not merge until the PR Build workflow succeeds."
+                  fi
+
                   gh pr create \
                     --title "chore: sync with upstream $(date +%Y-%m-%d)" \
-                    --body "Automated sync from [aws-observability/aws-otel-lambda](https://github.com/aws-observability/aws-otel-lambda).\n\n⚠️ Fast-forward was not possible — please review and resolve conflicts before merging." \
+                    --body "$BODY" \
                     --base main \
-                    --head "$BRANCH"
+                    --head "${{ steps.merge.outputs.branch }}"
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_TOKEN: ${{ secrets.SYNC_PAT }}
 
             - name: No changes
               if: steps.check.outputs.behind == '0'
