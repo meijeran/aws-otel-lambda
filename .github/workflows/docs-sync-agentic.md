@@ -5,6 +5,7 @@ emoji: 📚
 on:
   schedule: daily on weekdays
   skip-if-match: 'is:pr is:open in:title "[docs sync]"'
+  workflow_dispatch:
 
 permissions:
   contents: read

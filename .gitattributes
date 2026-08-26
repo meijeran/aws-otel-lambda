@@ -5,3 +5,5 @@
 
 *.jar -text
 *.png -text
+
+.github/workflows/*.lock.yml linguist-generated=true
