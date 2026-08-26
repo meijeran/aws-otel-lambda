@@ -12,6 +12,10 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+  
 jobs:
   build-artifacts:
     runs-on: ubuntu-22.04
@@ -34,7 +38,7 @@ jobs:
         if: ${{ matrix.language == 'java' }}
         with:
           distribution: corretto
-          java-version: '17'
+          java-version: '26'
       - name: Cache (Java)
         uses: actions/cache@v4
         if: ${{ matrix.language == 'java' }}
@@ -49,7 +53,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: ${{ matrix.language == 'nodejs' }}
         with:
-          node-version: '16'
+          node-version: '24'
       - name: Cache (NodeJS)
         uses: actions/cache@v4
         if: ${{ matrix.language == 'nodejs' }}
@@ -77,7 +81,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         if: ${{ matrix.language == 'dotnet' }}
         with:
-          dotnet-version: '6.0.405'
+          dotnet-version: '10'
       - name: Patch ADOT
         run: ./patch-upstream.sh
       - name: Build layers / sample functions
