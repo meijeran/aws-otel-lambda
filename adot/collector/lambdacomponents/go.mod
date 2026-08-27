@@ -17,7 +17,7 @@ require (
 	go.uber.org/multierr v1.11.0
 )
 
-require go.opentelemetry.io/collector/processor/processorhelper v0.138.0 // indirect
+require go.opentelemetry.io/collector/processor/processorhelper v0.151.0 // indirect
 
 require (
 	cloud.google.com/go/auth v0.18.2 // indirect
