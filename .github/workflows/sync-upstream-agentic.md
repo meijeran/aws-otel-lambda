@@ -7,6 +7,7 @@ runs-on: ubuntu-latest
 
 permissions:
   contents: read
+  copilot-requests: write
 
 safe-outputs:
   create-pull-request:
